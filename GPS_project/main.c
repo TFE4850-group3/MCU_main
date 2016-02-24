@@ -8,9 +8,14 @@
 #define USART_BAUDRATE 9600
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+
+#include <nmea.h>
+#include <nmea/gpgga.h>
 
 
 volatile uint8_t data_send;
@@ -82,6 +87,16 @@ int main(void)
 		}
 		//}
 		asm("nop");
+
+                nmea_s* data;
+
+                if (sentence_ready == 2) {
+                    data = nmea_parse(sentence, strlen(sentence), 0);
+                    if (data->type == NMEA_GPGGA) {
+                        nmea_gpgga_s* gpgga_data = (nmea_gpgga*) data;
+                    }
+                    sentence_ready = 0;
+                }
     }
 }
 
