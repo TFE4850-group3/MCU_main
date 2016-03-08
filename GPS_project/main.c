@@ -4,58 +4,83 @@
  * Created: 17.02.2016 10.04.47
  * Author : tgarp
  */ 
-#define	F_CPU (20000000UL)
+
+#define	F_CPU (8000000UL)
 #define USART_BAUDRATE 9600
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include "header.h"
 
-//---Message receive and message sent---
-//tx_msg contains data that you want to send
-//---------USART0 message------------
-uint8_t tx_msg0[9]={0xA0, 0xA1, 0x00, 0x02, 0x02, 0x00 ,0x02, 0x0D, 0x0A};
-//uint8_t tx_msg0[22]={0xA0, 0xA1, 0x00, 0x0F, 0x01, 0x04, 0x07, 0xDD, 0x09, 0x1B, 0x06, 0x29, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x0D, 0x0A};
-//---------USART1 message------------
-uint8_t tx_msg1[22]={0xA0, 0xA1, 0x00, 0x0F, 0x01, 0x04, 0x07, 0xDD, 0x09, 0x1B, 0x06, 0x29, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x0D, 0x0A};
-//---------Counters USART0-----------
-volatile uint8_t tx_count0 = 0;
-volatile uint8_t rx_count0 = 0;
-//---------Counters USART1-----------
-volatile uint8_t tx_count1 = 0;
-volatile uint8_t rx_count1 = 0;
-int data0[22] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-int data1[22] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-	
-//--------Decleration of functions-------
-void init();	
+//---------------------------------DEFINE MESSAGE TO SEND ------------------------------------
+//---------------------------------------------------------------------------------------------
+#define QSV
+// If SER is defined; define NEW_USART_BAUDRATE for microcontroller. 
+#define NEW_USART_BAUDRATE 230400
+#define NEW_BAUD_PRESCALE (((F_CPU / (NEW_USART_BAUDRATE * 16UL))) - 1)
+
+const uint8_t tx_msg[] = {
+	0xA0, 0xA1,
+#ifdef EMPTY	
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+#endif
+
+#ifdef SR			/*SYSTEM RESTART*/
+					//Not yet configured
+					/*0x00, 0x02, 0x02, 0x00, 0x02,*/
+#endif
+
+#ifdef QSV			/*QUERY SOFTWARE VERSION*/		
+	0x00, 0x02, 0x02, 0x00, 0x02,
+#endif
+#ifdef CRC			/*QUERY SOFTWARE CRC*/		
+	0x00, 0x02, 0x03, 0x00, 0x03,
+#endif
+#ifdef DEF			/*SET FACTORY DEFAULTS*/	
+					//reboots after setting to factory defaults	
+	0x00, 0x02, 0x04, 0x01, 0x05,
+#endif
+#ifdef SER			/*CONFIGURE SERIAL PORT*/
+					//set baud rate.
+	0x00, 0x04, 0x05, 0x00, 0x06, 0x00, 0x03,
+#endif
+#ifdef NMEA_CONFIG	/*CONFIGURE NMEA MESSAGE*/
+					// Sets GGA interval and turns off all other NMEA messages.
+	0x00, 0x09, 0x08, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09,
+#endif 
+	0x0D, 0x0A};
+ 
+uint8_t usart_reinit = 0;
+
 
 int main(void)
 {
-	uint8_t data = 0;
-	int c = 0;
 	
 	DDRB = 0xff;
-	init();
+	init();	
+
     while (1) 
-    {
+    {			
+		//When changing Baud Rate we have to use this delay in order to "catch up" with faster Baud Rate.
+		//_delay_ms(100);
 		
-		asm("nop");
-		for(int i = 0; i<22; i++){
-			while ( !(UCSR1A & (1 << UDRE1)) )
-			;
-			//data=0xff;
-			data = tx_msg1[i];
-			UDR1=data;
-		}
-		
-		//d=0xFF;
-		c = c + 1;
-		if(c==2){
-			asm("nop");
-			c=0;
+		//Set new values in UBRRxH and UBRRxL using NEW_BAUD_PRESCALE calculated earlier.
+		if((msg_check==1)&&(usart_reinit==1)){
+			cli();
+			UBRR0H = 0x00;
+			UBRR0L = 0x00;
+			UBRR1H = 0x00;
+			UBRR1L = 0x00;
+			UBRR0H = (unsigned char)(NEW_BAUD_PRESCALE>>8);
+			UBRR0L = (unsigned char)NEW_BAUD_PRESCALE;
+			UBRR1H = (unsigned char)(NEW_BAUD_PRESCALE>>8);
+			UBRR1L = (unsigned char)NEW_BAUD_PRESCALE;
+			sei();
+			msg_check = 0;
 		}
 		asm("nop");
     }
@@ -64,24 +89,65 @@ int main(void)
 //USART0 Rx Complete interrupt. Will only activated if RXC0 flag in UCSR0A is set
 ISR(USART0_RX_vect){
 	cli();
-	PORTB |= 0x02;
-	data0[rx_count0]= UDR0;
-	rx_count0 = rx_count0 + 1;
+	rx0_count = rx_routine(&UDR0, &data0, rx0_count);
 	sei();
 }
 
+//USART1 Rx Complete interrupt. Will only activated if RXC1 flag in UCSR1A is set
 ISR(USART1_RX_vect){
 	cli();
-	PORTB |= 0x04;
-	data1[rx_count1]= UDR1;
-	rx_count1=rx_count1+1;
+	rx1_count = rx_routine(&UDR1, &data1, rx1_count);
 	sei();
+}
+
+//USART0 UDRIE interrupt. Will only activate if transmit register is empty.
+ISR(USART0_UDRE_vect){
+	cli();
+	
+	UDR0= tx_msg[tx0_count];
+	//Turn off transmitt interrupt when message is sent
+	if(tx0_count==(sizeof(tx_msg)/sizeof(tx_msg[0]))-1){
+		msg_check = 1;
+		UCSR0B &= ~(1<<UDRIE0);
+	}
+	tx0_count = tx0_count + 1;
+	sei();
+}
+
+int rx_routine(uint8_t *rx_mod, char *data, int count)
+{
+	char temp;
+	temp = *rx_mod;
+	/*Check for NMEA message start and add '\0' into end of previous NMEA message.
+	This is done because we want it to be a string*/ 
+	if((temp == '$')&&(count>0)){						
+		data[count]='\0';
+		count = count + 1;
+	//Dump all data when receiving command response
+	}else if((temp==0xa1)&&(data[count-1]==0xa0)){			
+		data[0]=data[count-1];
+		count=1;		
+	}/*else if((temp==0x0a)&&(data[count-1]==0x0d)){
+		count =0;
+	}*/
+	data[count]= temp;
+	count = count + 1;
+	//Dump data when data buffer is too big
+	if(count==290){
+		count = 0;
+	}
+	return count;
 }
 
 void init()
 {
 	//set GPS in reset mode (Reset is set to low)
 	PORTB = 0x00;
+	
+	#ifdef SER
+	usart_reinit = 1;
+	#endif
+	
 	/* Set baud rate */
 	UBRR0H = (unsigned char)(BAUD_PRESCALE>>8);
 	UBRR0L = (unsigned char)BAUD_PRESCALE;
@@ -91,7 +157,7 @@ void init()
 	UCSR0B |= (1<<RXEN0)|(1<<TXEN0);
 	UCSR1B |= (1<<RXEN1)|(1<<TXEN1);
 
-	/* Set frame format: 8data, 2stop bit */
+	/* Set frame format: 8data, 1stop bit */
 	UCSR0C |= (1<<UCSZ00)|(1<<UCSZ01);
 	UCSR1C |= (1<<UCSZ10)|(1<<UCSZ11);
 		
@@ -99,9 +165,13 @@ void init()
 	UCSR0B |= (1<<RXCIE0);
 	//Enable Recieve interrupt for USART1
 	UCSR1B |= (1<<RXCIE1);
+	//Enable interrupt when transmit register is ready to be written to
+	UCSR0B |= (1<<UDRIE0);	
+	//Activate GPS (Reset is set to high)	
+	PORTB |= 0x01;
+	_delay_ms(100);
+	asm("nop");
 	//Enable Global interrupt
 	sei();
-	//Activate GPS (Reset is set to high)
-	PORTB |= 0x01;
 	
 }
