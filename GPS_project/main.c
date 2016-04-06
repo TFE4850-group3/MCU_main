@@ -18,15 +18,32 @@
 
 //---------------------------------DEFINE MESSAGE TO SEND ------------------------------------
 //---------------------------------------------------------------------------------------------
-#define QSV
+#define SER
 // If SER is defined; define NEW_USART_BAUDRATE for microcontroller. 
 #define NEW_USART_BAUDRATE 230400
 #define NEW_BAUD_PRESCALE (((F_CPU / (NEW_USART_BAUDRATE * 16UL))) - 1)
+uint8_t check = 0;
 
-const uint8_t tx_msg[] = {
+uint8_t tx_msg1[] = {
 	0xA0, 0xA1,
+	0x00, 0x03,
+	0x0E, 0x32,
+	0x00, 0x3f,
+	0x0D, 0x0A
+};
+
+uint8_t tx_msg[] = {
+	0xA0, 0xA1,
+
+#ifdef TEST
+0x2B, 0x2B, 0x2B, 0x2B, 0x2B,0x2B, 0x2B, 0x2B, 0x2B, 0xd, 0xa, 0x2B, 0x2B, 0x2B, 0x2B, 0x2B,0x2B, 0x2B, 0x2B, 0x2B, 0xd, 0xa
+#endif	
 #ifdef EMPTY	
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 
+	0x00, 0x00, 
+	0x00, 0x00, 
+	0x00, 0x00, 
+	0x00,
 #endif
 
 #ifdef SR			/*SYSTEM RESTART*/
@@ -35,24 +52,46 @@ const uint8_t tx_msg[] = {
 #endif
 
 #ifdef QSV			/*QUERY SOFTWARE VERSION*/		
-	0x00, 0x02, 0x02, 0x00, 0x02,
+	0x00, 0x02, 
+	0x02, 0x00, 
+	0x02,
 #endif
 #ifdef CRC			/*QUERY SOFTWARE CRC*/		
-	0x00, 0x02, 0x03, 0x00, 0x03,
+	0x00, 0x02, 
+	0x03, 0x00, 
+	0x03,
 #endif
 #ifdef DEF			/*SET FACTORY DEFAULTS*/	
 					//reboots after setting to factory defaults	
-	0x00, 0x02, 0x04, 0x01, 0x05,
+	0x00, 0x02, 
+	0x04, 0x01, 
+	0x05,
 #endif
 #ifdef SER			/*CONFIGURE SERIAL PORT*/
 					//set baud rate.
-	0x00, 0x04, 0x05, 0x00, 0x06, 0x00, 0x03,
+	0x00, 0x04, 
+	0x05, 0x00, 
+	0x06, 0x00, 
+	0x03,
 #endif
 #ifdef NMEA_CONFIG	/*CONFIGURE NMEA MESSAGE*/
 					// Sets GGA interval and turns off all other NMEA messages.
-	0x00, 0x09, 0x08, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09,
+	0x00, 0x09, 
+	0x08, 0x01, 
+	0x00, 0x00, 
+	0x00, 0x00, 
+	0x00, 0x00, 
+	0x00, 0x09,
 #endif 
-	0x0D, 0x0A};
+
+#ifdef NMEA_CONFIG	/*CONFIGURE SYSTEM POSITION RATE*/
+//set update rate to 50hz
+0x00, 0x03,
+0x0E, 0x32,
+0x00, 0x3f,
+#endif
+	0x0D, 0x0A
+};
  
 uint8_t usart_reinit = 0;
 
@@ -61,15 +100,18 @@ int main(void)
 {
 	
 	DDRB = 0xff;
-	init();	
-
+	//master_spi_init();
+	USART_init();
+	//Enable Global interrupt	
+	sei();
     while (1) 
     {			
 		//When changing Baud Rate we have to use this delay in order to "catch up" with faster Baud Rate.
-		//_delay_ms(100);
+		_delay_ms(100);
 		
 		//Set new values in UBRRxH and UBRRxL using NEW_BAUD_PRESCALE calculated earlier.
 		if((msg_check==1)&&(usart_reinit==1)){
+			
 			cli();
 			UBRR0H = 0x00;
 			UBRR0L = 0x00;
@@ -80,8 +122,21 @@ int main(void)
 			UBRR1H = (unsigned char)(NEW_BAUD_PRESCALE>>8);
 			UBRR1L = (unsigned char)NEW_BAUD_PRESCALE;
 			sei();
-			msg_check = 0;
+			if(check==0){
+				msg_check = 0;
+			}
+			
+			check = 1;
+		
 		}
+		
+		/* Start transmission */
+		//SPDR = data0[rx0_count];
+		//SPDR = 0x24;
+		/* Wait for transmission complete */
+		//while(!(SPSR & (1<<SPIF)))
+		//;
+		
 		asm("nop");
     }
 }
@@ -106,10 +161,20 @@ ISR(USART0_UDRE_vect){
 	
 	UDR0= tx_msg[tx0_count];
 	//Turn off transmitt interrupt when message is sent
-	if(tx0_count==(sizeof(tx_msg)/sizeof(tx_msg[0]))-1){
-		msg_check = 1;
-		UCSR0B &= ~(1<<UDRIE0);
+	if(check==0){
+		if(tx0_count==(sizeof(tx_msg)/sizeof(tx_msg[0]))-1){
+			msg_check = 1;
+			tx0_count = 0;
+			//UCSR0B &= ~(1<<UDRIE0);
+		}
+	}else if(check==1){
+		if(tx0_count==(sizeof(tx_msg1)/sizeof(tx_msg1[0]))-1){
+			msg_check = 1;
+			tx0_count = 0;
+			UCSR0B &= ~(1<<UDRIE0);
+		}
 	}
+	
 	tx0_count = tx0_count + 1;
 	sei();
 }
@@ -139,7 +204,17 @@ int rx_routine(uint8_t *rx_mod, char *data, int count)
 	return count;
 }
 
-void init()
+void master_spi_init()
+{
+	/* Set MOSI, SS and SCK output, all others input */
+	DDRB = 0xB0;
+	//PORTB |= 0x10;
+	SPSR = (1<<SPI2X);
+	/* Enable SPI, Master, set clock rate fck/16 */
+	SPCR = (1<<SPE)|(1<<MSTR);
+}
+
+void USART_init()
 {
 	//set GPS in reset mode (Reset is set to low)
 	PORTB = 0x00;
@@ -169,9 +244,10 @@ void init()
 	UCSR0B |= (1<<UDRIE0);	
 	//Activate GPS (Reset is set to high)	
 	PORTB |= 0x01;
-	_delay_ms(100);
+
+	_delay_ms(500);
 	asm("nop");
-	//Enable Global interrupt
-	sei();
+	
+	
 	
 }
