@@ -11,7 +11,6 @@
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
 
 /* Define message you wish to be sent to controller. Check header.h for message specifications */
-/* Defining message to be sent to GPS module should be done before the inclusion of header.h */
 #define EMPTY
 
 #include <stdlib.h>
@@ -23,41 +22,38 @@
 
 int main(void)
 {
-    /*------------------------------- INITIALIZATION PHASE -------------------------- */
-    /* ------------------------------------------------------------------------------ */
 	int par_check = 0;
-	/* Set PORTA as output for parallel data out */
-	DDRA = 0xFF;
 	//set PB0 as output (connected to reset on GPS-module)
 	DDRB = (1<<DDB0);
 	//set PB2 and PB3 as input, sensing for framestart
 	DDRB &= ~(1<<DDB2);
 	DDRB &= ~(1<<DDB3);
-	//USART initialization
+	//master_spi_init();
 	USART_init();
 	//Enable Global interrupt	
 	sei();
-	
-	/*------------------------------- MAIN PHASE ------------------------------------ */
-    /* ------------------------------------------------------------------------------ */
 	while (1) 
 	{   
 	  /* If Framestart (PB3 and PB1) is set, send parallel data out on PORTA */
 	  /* If data already sent during same framestart interval, do not send more data */
+if ( PINA & (1<<PINA2) ) {
 
-	  if((PINB & (1<<PINB3))&&((PINB & (1<<PINB2))&&(par_check == 0))){
-			/* Turn of global interrupt because we don't want data storage in data buffer to
-			be messed up when altering data buffer*/
-			cli();
-			par_check == 1;
-			PORTA = data0[0];
-			//Delete the sent data in databuffer, and shift array
-			for (int i = 0; i<(sizeof(data0)/sizeof(data0[0]));i++){
-				data0[i]=data0[i+1];
-				if(rx0_count >0){
-					rx0_count = rx0_count - 1;
-				}
-			}
+// gjør ett eller annet hvis PA2 er høy.
+
+}
+	  if((PINB & (1<<PINB3))&&((PINB & (1<<PINB2))&&(par_check == 0)){
+	      /* Turn of global interrupt because we don't want data storage in data buffer to
+	       be messed up when altering data buffer*/
+	      cli();
+	      par_check == 1;
+	      PORTA = data[0];
+	      //Shift data buffer array
+	      for (int i = 0; i<(sizeof(data)/sizeof(data[0]));i++){
+		  data[i]=data[i+1];
+		  if(count >0){
+		     count = count - 1;
+		  }
+	      }
 	      sei();
 	  }else{
 	    par_check =0;
